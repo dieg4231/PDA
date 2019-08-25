@@ -58,8 +58,10 @@ A |---|---|---|---|
 void hann(int size);
 double *hann_values;
 
-double complex *i_fft, *i_time, *o_fft, *o_time,**buffer_0, *buffer_a, *buffer_b;
-fftw_plan i_forward, o_inverse;
+double complex *i_fft_a, *i_time_a, *o_fft_a, *o_time_a,**buffer_0, *buffer_a, *buffer_b;
+double complex *i_fft_b, *i_time_b, *o_fft_b, *o_time_b;
+fftw_plan i_forward_a, o_inverse_a;
+fftw_plan i_forward_b, o_inverse_b;
 
 jack_port_t *input_port, *output_port;
 int buffers_size;
@@ -78,59 +80,68 @@ jack_default_audio_sample_t **in, **out;
 jack_port_t **input;
 jack_port_t **output;
 
+
 int jack_callback (jack_nframes_t nframes, void *arg)
 {
 	int i,j,k = 0;
 
-
+	//printf("NFRAMES %d\n",nframes );
 	for(i = 0; i < NUM_CH; ++i)
 	{
 		in[i] = jack_port_get_buffer(input[i],nframes);
 		out[i] = jack_port_get_buffer(output[i],nframes);
 	}
 
-
 	for(i = 0; i < WINDOWS_PER_BUFF_0 - 1; ++i )
 		buffer_0[i] = buffer_0[i + 1];
 
 	buffer_0[5] = buffer_0[0];
 
+	for (int i = 0; i < WINDOW_SIZE; ++i)
+		buffer_0[5][i] = in[0][i];
+
 	for(i = 0, k = 0; i < WINDOWS_PER_BUFF_AB; ++i)
 		for(j = 0; j < WINDOW_SIZE; ++j, ++k)
-		{
-			buffer_a[k] = buffer_0[i][j] * hann_values[k];
-			buffer_b[k] = buffer_0[i+2][j] * hann_values[k];
-		}
+			{
+				i_time_a[k] = buffer_0[i][j] * hann_values[k];
+				i_time_b[k] = buffer_0[i+2][j] * hann_values[k];
+			}
+	fftw_execute(i_forward_a);
+	fftw_execute(i_forward_b);
+
+	for(i = 0; i < WINDOW_SIZE * WINDOWS_PER_BUFF_AB; ++i)
+	{
+		o_fft_a[i] = i_fft_a[i] * cexp(-I * 2 * M_PI * freqs[i] * 0.015);
+		o_fft_b[i] = i_fft_b[i] * cexp(-I * 2 * M_PI * freqs[i] * 0.015);	
+	}
+
+	fftw_execute(o_inverse_a);
+	fftw_execute(o_inverse_b);
+
+	for(i = 0; i < WINDOW_SIZE * WINDOWS_PER_BUFF_AB; ++i)
+	{
+		buffer_a[i] = creal(o_time_a[i])/ (WINDOW_SIZE * WINDOWS_PER_BUFF_AB); //fftw3 requiere normalizar su salida real de esta manera
+		buffer_b[i] = creal(o_time_b[i])/ (WINDOW_SIZE * WINDOWS_PER_BUFF_AB); //fftw3 requiere normalizar su salida real de esta manera
+	}
+
 
     for(i = WINDOW_SIZE / 2, j =  WINDOW_SIZE * WINDOWS_PER_BUFF_AB - (3 * WINDOW_SIZE / 2), k = 0 ; k < WINDOW_SIZE; ++i, ++j, ++k)
     {
-    	out[1][k] = creal(buffer_b[i] + buffer_a[j]);	
-    	out[0][k] =in[0][k];
-
-    	buffer_0[5][k] = in[0][k];
-
+    	out[0][k] = creal( buffer_b[i] + buffer_a[j]);	
     }
 
-	//fill buffer a
+  
+    k = 0;
+    for(i = WINDOW_SIZE / 2 ; i < WINDOW_SIZE; ++i, ++k)
+    {
+    	out[1][k] = creal(buffer_0[2][i]);	
+    }
 
+    for(i = 0  ; i < WINDOW_SIZE / 2; ++i, ++k)
+    {
+    	out[1][k] = creal(buffer_0[3][i]);	
+    }
 
-	/*/ Obteniendo la transformada de Fourier de este periodo
-	for(i = 0; i < nframes; ++i)
-		i_time[i] = in[i];
-	
-	fftw_execute(i_forward);
-		
-	// Aquí podriamos hacer algo con i_fft
-	for(i = 0; i < nframes; i++)
-		o_fft[i] = i_fft[i] * cexp(-I * 2 * M_PI * freqs[i] * t_0);	
-	
-	
-	// Regresando al dominio del tiempo
-	fftw_execute(o_inverse);
-	for(i = 0; i < nframes; i++){
-		out[i] = creal(o_time[i])/nframes; //fftw3 requiere normalizar su salida real de esta manera
-	}
-	*/
 	return 0;
 }
 
@@ -212,22 +223,30 @@ int main (int argc, char *argv[]) {
 	*/
 
 	//
-	freqs = (double *) malloc(sizeof(double)*nframes);
-	for(int i = 0; i <= nframes/2; ++i )
+	freqs = (double *) malloc(sizeof(double)*nframes* WINDOWS_PER_BUFF_AB);
+	for(int i = 0; i <= (nframes* WINDOWS_PER_BUFF_AB)/2; ++i )
 	{
-		freqs[i] = i*(sample_rate/nframes);
-		if( i > 0 && i < nframes/2 )
-			freqs[nframes -i] =  -1*freqs[i];
+		freqs[i] = i*(sample_rate/(nframes* WINDOWS_PER_BUFF_AB));
+		if( i > 0 && i < (nframes* WINDOWS_PER_BUFF_AB)/2 )
+			freqs[(nframes* WINDOWS_PER_BUFF_AB) -i] =  -1*freqs[i];
 	}
 	
 	//preparing FFTW3 buffers
-	i_fft = (double complex *) fftw_malloc(sizeof(double complex) * nframes);
-	i_time = (double complex *) fftw_malloc(sizeof(double complex) * nframes);
-	o_fft = (double complex *) fftw_malloc(sizeof(double complex) * nframes);
-	o_time = (double complex *) fftw_malloc(sizeof(double complex) * nframes);
+	i_fft_a  = (double complex *) fftw_malloc(sizeof(double complex) * nframes * WINDOWS_PER_BUFF_AB);
+	i_time_a = (double complex *) fftw_malloc(sizeof(double complex) * nframes * WINDOWS_PER_BUFF_AB);
+	o_fft_a  = (double complex *) fftw_malloc(sizeof(double complex) * nframes * WINDOWS_PER_BUFF_AB);
+	o_time_a = (double complex *) fftw_malloc(sizeof(double complex) * nframes * WINDOWS_PER_BUFF_AB);
 	
-	i_forward = fftw_plan_dft_1d(nframes, i_time, i_fft , FFTW_FORWARD, FFTW_MEASURE);
-	o_inverse = fftw_plan_dft_1d(nframes, o_fft , o_time, FFTW_BACKWARD, FFTW_MEASURE);
+	i_forward_a = fftw_plan_dft_1d(nframes * WINDOWS_PER_BUFF_AB, i_time_a, i_fft_a , FFTW_FORWARD, FFTW_MEASURE);
+	o_inverse_a = fftw_plan_dft_1d(nframes * WINDOWS_PER_BUFF_AB, o_fft_a , o_time_a, FFTW_BACKWARD, FFTW_MEASURE);
+
+	i_fft_b  = (double complex *) fftw_malloc(sizeof(double complex) * nframes * WINDOWS_PER_BUFF_AB);
+	i_time_b = (double complex *) fftw_malloc(sizeof(double complex) * nframes * WINDOWS_PER_BUFF_AB);
+	o_fft_b  = (double complex *) fftw_malloc(sizeof(double complex) * nframes * WINDOWS_PER_BUFF_AB);
+	o_time_b = (double complex *) fftw_malloc(sizeof(double complex) * nframes * WINDOWS_PER_BUFF_AB);
+	
+	i_forward_b = fftw_plan_dft_1d(nframes * WINDOWS_PER_BUFF_AB, i_time_b, i_fft_b , FFTW_FORWARD, FFTW_MEASURE);
+	o_inverse_b = fftw_plan_dft_1d(nframes * WINDOWS_PER_BUFF_AB, o_fft_b , o_time_b, FFTW_BACKWARD, FFTW_MEASURE);
 	
 	/* create the agent input port */
 	for(i = 0; i< NUM_CH; ++i)
