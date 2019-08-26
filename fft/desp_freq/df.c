@@ -72,6 +72,8 @@ jack_client_t *client;
 double *freqs;
 double sample_rate;
 
+double desface;
+
 int t_0;
 int index_buff_0;
 
@@ -111,8 +113,8 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 
 	for(i = 0; i < WINDOW_SIZE * WINDOWS_PER_BUFF_AB; ++i)
 	{
-		o_fft_a[i] = i_fft_a[i] * cexp(-I * 2 * M_PI * freqs[i] * 0.015);
-		o_fft_b[i] = i_fft_b[i] * cexp(-I * 2 * M_PI * freqs[i] * 0.015);	
+		o_fft_a[i] = i_fft_a[i] * cexp(-I * 2 * M_PI * freqs[i] * desface);
+		o_fft_b[i] = i_fft_b[i] * cexp(-I * 2 * M_PI * freqs[i] * desface);	
 	}
 
 	fftw_execute(o_inverse_a);
@@ -124,10 +126,11 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 		buffer_b[i] = creal(o_time_b[i])/ (WINDOW_SIZE * WINDOWS_PER_BUFF_AB); //fftw3 requiere normalizar su salida real de esta manera
 	}
 
-
     for(i = WINDOW_SIZE / 2, j =  WINDOW_SIZE * WINDOWS_PER_BUFF_AB - (3 * WINDOW_SIZE / 2), k = 0 ; k < WINDOW_SIZE; ++i, ++j, ++k)
     {
-    	out[0][k] = creal( buffer_b[i] + buffer_a[j]);	
+    	//out[0][k] = creal( buffer_b[i] + buffer_a[j]);
+    	out[0][k] = (creal(o_time_b[i]) + creal(o_time_a[j]) )/ (WINDOW_SIZE * WINDOWS_PER_BUFF_AB);	
+
     }
 
   
@@ -161,6 +164,8 @@ int main (int argc, char *argv[]) {
 	jack_status_t status;
 	int i,j,k = 0;
 	char name_aux[50];
+
+
 
 	//JACK PORTS
 	input = (jack_port_t**)malloc(NUM_CH*sizeof(jack_port_t*));
@@ -208,13 +213,40 @@ int main (int argc, char *argv[]) {
 	   either entirely, or if it just decides to stop calling us. */
 	jack_on_shutdown (client, jack_shutdown, 0);
 	
+
 	/* display the current sample rate. */
 	printf ("Sample rate: %d\n", jack_get_sample_rate (client));
 	printf ("Window size: %d\n", jack_get_buffer_size (client));
 	sample_rate = (double)jack_get_sample_rate(client);
 	int nframes = jack_get_buffer_size (client);
+
+	if(nframes != WINDOW_SIZE)
+	{
+		printf("Sorry nframes and WINDOW_SIZE  must be the same size. :( \n");
+	}
+
+	if( argc > 1)
+	{
+		desface = atof(argv[1]);
+		if( fabs(desface) > (nframes/jack_get_sample_rate (client)) )
+		{
+			printf("Parameters ok\n");
+		}
+		else
+		{
+			printf(" %lf  OUT OF RANGE !!! \n Range values ( -%f  , %f ) \n",desface,(float)(nframes/jack_get_sample_rate (client)),(float)(nframes/jack_get_sample_rate (client)));
+			return 0;
+		}
+	}
+	else
+	{
+		printf(" :( Please provide a number -.- \n");
+		return 0;
+	}
+
 	
 	hann(nframes*4);
+
 	
 	/*
 	for(int i = 0 ; i < 100; i++)
