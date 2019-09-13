@@ -58,7 +58,7 @@ A |---|---|---|---|
 void hann(int size);
 double *hann_values;
 
-double complex *i_fft_a, *i_time_a, *o_fft_a, *o_time_a,**buffer_0, *buffer_a, *buffer_b;
+double complex *i_fft_a, *i_time_a, *o_fft_a, *o_time_a,**buffer_0;
 double complex *i_fft_b, *i_time_b, *o_fft_b, *o_time_b;
 fftw_plan i_forward_a, o_inverse_a;
 fftw_plan i_forward_b, o_inverse_b;
@@ -93,24 +93,28 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 		in[i] = jack_port_get_buffer(input[i],nframes);
 		out[i] = jack_port_get_buffer(output[i],nframes);
 	}
-
+	// Corrimiento de los apuntadores del buffer 0
 	for(i = 0; i < WINDOWS_PER_BUFF_0 - 1; ++i )
 		buffer_0[i] = buffer_0[i + 1];
 
 	buffer_0[5] = buffer_0[0];
 
+	//nuevos datos
 	for (int i = 0; i < WINDOW_SIZE; ++i)
 		buffer_0[5][i] = in[0][i];
 
+	// LLenamos buffer a y b con la señal hanneada
 	for(i = 0, k = 0; i < WINDOWS_PER_BUFF_AB; ++i)
 		for(j = 0; j < WINDOW_SIZE; ++j, ++k)
 			{
 				i_time_a[k] = buffer_0[i][j] * hann_values[k];
 				i_time_b[k] = buffer_0[i+2][j] * hann_values[k];
 			}
+
 	fftw_execute(i_forward_a);
 	fftw_execute(i_forward_b);
 
+	//Desplazamiento
 	for(i = 0; i < WINDOW_SIZE * WINDOWS_PER_BUFF_AB; ++i)
 	{
 		o_fft_a[i] = i_fft_a[i] * cexp(-I * 2 * M_PI * freqs[i] * desface);
@@ -120,22 +124,17 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 	fftw_execute(o_inverse_a);
 	fftw_execute(o_inverse_b);
 
-	for(i = 0; i < WINDOW_SIZE * WINDOWS_PER_BUFF_AB; ++i)
-	{
-		buffer_a[i] = creal(o_time_a[i])/ (WINDOW_SIZE * WINDOWS_PER_BUFF_AB); //fftw3 requiere normalizar su salida real de esta manera
-		buffer_b[i] = creal(o_time_b[i])/ (WINDOW_SIZE * WINDOWS_PER_BUFF_AB); //fftw3 requiere normalizar su salida real de esta manera
-	}
+	// sumamos señales
 
     for(i = WINDOW_SIZE / 2, j =  WINDOW_SIZE * WINDOWS_PER_BUFF_AB - (3 * WINDOW_SIZE / 2), k = 0 ; k < WINDOW_SIZE; ++i, ++j, ++k)
     {
-    	//out[0][k] = creal( buffer_b[i] + buffer_a[j]);
     	out[0][k] = (creal(o_time_b[i]) + creal(o_time_a[j]) )/ (WINDOW_SIZE * WINDOWS_PER_BUFF_AB);	
 
     }
 
-  
-    k = 0;
-    for(i = WINDOW_SIZE / 2 ; i < WINDOW_SIZE; ++i, ++k)
+    //Señal sin dezplazamiento
+    
+    for(i = WINDOW_SIZE / 2, k = 0 ; i < WINDOW_SIZE; ++i, ++k)
     {
     	out[1][k] = creal(buffer_0[2][i]);	
     }
@@ -172,8 +171,6 @@ int main (int argc, char *argv[]) {
 	output = (jack_port_t**)malloc(NUM_CH*sizeof(jack_port_t*));
 
 	//BUFF DESPLAZAMIENTOS
-	buffer_a = ( double complex *) malloc( sizeof(double complex) * WINDOW_SIZE * WINDOWS_PER_BUFF_AB );
-	buffer_b = ( double complex *) malloc( sizeof(double complex) * WINDOW_SIZE * WINDOWS_PER_BUFF_AB );
 	buffer_0 = ( double complex **) malloc( sizeof(double complex *) * WINDOWS_PER_BUFF_0 );
 	for(i = 0; i < WINDOWS_PER_BUFF_0 ; ++i)
 		buffer_0[i] = (double complex*)malloc(sizeof(double complex) * WINDOW_SIZE);	
