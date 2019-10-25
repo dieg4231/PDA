@@ -1,0 +1,200 @@
+from Tkinter import *
+from tkFont import Font
+import threading
+import ttk
+import time
+import math
+from PIL import Image
+from PIL import ImageDraw
+import tkMessageBox
+import os
+import signal
+import math
+import numpy as np
+
+
+ 
+
+class MobileRobotSimulator(threading.Thread):
+
+	def __init__(self):
+		threading.Thread.__init__(self)
+
+		self.stopped = False 
+		# map size in meters
+		self.mapX = 1 
+		self.mapY = 1
+		# canvas size in pixels
+		self.canvasX= 600
+		self.canvasY= 600
+		# robot position and angle
+		self.robotAngle=0
+		self.robotX=-100
+		self.robotY=-100
+
+		self.p_giro=0
+		self.p_distance=0
+		
+		self.polygonMap = []
+		self.nodes_image = None
+		self.light=-1
+		self.robot=-1
+
+		self.flagOnce=False
+
+		self.light_x = 0
+		self.light_y = 0
+		self.startFlag = False
+
+		self.lasers = []
+		self.sensors_value = [512];
+		self.sensors_values = [512];
+		self.sensors_values_aux = [512];
+		self.sensors_values_aux_old = [512];
+		for i in range(512):
+			self.sensors_value.append(0)
+			self.sensors_values.append(0)
+			self.sensors_values_aux.append(0)
+
+
+		self.graph_list = [200]
+		for i in range(200):
+			self.graph_list.append(0)
+
+		self.rewind=[]
+		self.trace_route= []
+		self.varShowNodes   = False
+		self.grid =[]
+		self.contador = 0;
+		self.contador_ = 0;
+		self.bandera = True
+
+		self.X_pose = 0
+		self.Y_pose = 0
+
+		self.num_polygons = 0  #How many polygons exist in the field.
+		self.polygons = []	   #Stors polygons vertexes
+		self.polygons_mm = []  #Stors 2 vertexses  for each polygon the maximum and minimum  x and y  points.
+
+		self.objects_data = []
+		self.grasp_id = False
+		self.current_object = -1;
+		self.current_object_name = -1;
+
+		self.initX = 0
+		self.initY = 0
+		self.initR = 0
+
+		self.ang_arr = 0
+
+		self.b = 999
+		self.c = 999
+		self.d = 999
+
+		self.start()
+
+	def kill(self):  # When press (x) window
+		print("Bye prro")
+		self.root.quit()
+
+	def new_angle(self,*args):
+		x = 200
+		y = 150
+		radio = 10
+		self.w.create_oval(x-radio,y-radio, x+radio,y+radio   , outline=self.robotColor, fill=self.robotColor, width=1)
+		self.w.create_oval(self.canvasX- x-radio,y-radio,self.canvasX- x+radio,y+radio   , outline=self.robotColor, fill=self.robotColor, width=1)
+		
+		h = 300
+		mid = x+(self.canvasX - x -x) / 2
+		i = self.ang_arr
+		
+		self.w.delete(self.b)
+		self.w.delete(self.c)
+		self.w.delete(self.d)
+
+		yy = h*math.sin(3.1415-(i+1.5707))
+		xx = h*math.cos(3.1415-(i+1.5707))
+
+		self.b = self.w.create_line(0+x ,0+y ,xx+x ,yy+y ,fill = "#0000FF") 
+		self.c = self.w.create_line(0+self.canvasX- x ,0+y ,xx+self.canvasX- x ,yy+y ,fill = "#0000FF") 
+		self.d = self.w.create_line(mid ,0+y ,mid+xx,yy+y ,fill = "#0000FF") 
+
+
+
+	def handle_service(self,theta):
+		self.ang_arr = theta
+		self.a.set(1)
+
+	def gui_init(self):
+
+		self.backgroundColor = '#EDEDED';#"#FCFCFC";
+		self.entrybackgroudColor = "#FBFBFB";##1A3A6D";
+		self.entryforegroundColor = '#37363A';
+		self.titlesColor = "#303133"
+		self.menuColor = "#ECECEC"
+		self.menuButonColor = "#375ACC"
+		self.menuButonFontColor = "#FFFFFF"
+		self.obstacleInnerColor = '#447CFF'
+		self.obstaclesOutlineColor="#216E7D"#'#002B7A'
+		self.buttonColor = "#1373E6"
+		self.buttonFontColor = "#FFFFFF"
+		self.canvasColor = "#FFFFFF"
+		self.gridColor = "#D1D2D4"
+		self.wheelColor  = '#404000'  
+		self.robotColor  = '#F7CE3F'  
+		self.hokuyoColor = '#4F58DB' 
+		self.arrowColor  = '#1AAB4A' 
+		self.laserColor  = "#00DD41" 
+
+
+		
+		self.root = Tk()
+		self.root.protocol("WM_DELETE_WINDOW", self.kill)
+		self.root.title("Mobile Robot Simulator")
+
+		self.barMenu = Menu(self.root)
+		self.settingsMenu = Menu(self.barMenu, tearoff=0)
+		self.submenuTheme = Menu(self.settingsMenu, tearoff=0)
+		self.submenuCanvas = Menu(self.settingsMenu, tearoff=0)
+		self.root.config(menu=self.barMenu )
+
+	
+		self.content   = Frame(self.root)
+		self.frame     = Frame(self.content,borderwidth = 5, relief = "flat", width = 600, height = 900 ,background = self.backgroundColor)
+		self.rightMenu = Frame(self.content,borderwidth = 5, relief = "flat", width = 300, height = 900 ,background = self.backgroundColor)
+		self.w = Canvas(self.frame, width = self.canvasX, height = self.canvasY, bg=self.canvasColor)
+		self.w.pack()
+		
+		self.content  .grid(column = 0 ,row = 0 ,sticky = (N, S, E, W))
+		self.frame    .grid(column = 0 ,row = 0 ,columnspan = 3 ,rowspan = 2 ,sticky = (N, S, E, W))
+		self.rightMenu.grid(column = 3 ,row = 0 ,columnspan = 3 ,rowspan = 2 ,sticky = (N, S, E, W))
+
+		self.root.columnconfigure(0, weight=1)
+		self.root.rowconfigure(0, weight=1)
+		self.content.columnconfigure(0, weight = 3)
+		self.content.columnconfigure(1, weight = 3)
+		self.content.columnconfigure(2, weight = 3)
+		self.content.columnconfigure(3, weight = 1)
+		self.content.columnconfigure(4, weight = 1)
+		self.content.rowconfigure(1, weight = 1)
+
+		self.a = IntVar(value=3)
+		self.a.trace("w", self.new_angle)
+
+
+	def run(self):	
+		self.gui_init()
+		self.root.mainloop()
+
+
+
+def signal_handler(sig, frame):
+        print('You pressed Ctrl+C!')
+        sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+
+
+#m = MobileRobotSimulator()
+#m.run()
+
