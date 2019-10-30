@@ -2,7 +2,7 @@
 *
 
 # Unignore all with extensions
-!*.*
+#!*.*
 
 # Unignore all dirs
 !*/
@@ -12,6 +12,7 @@
 # Ignore files with extension `.class` & `.sm`
 *.class
 *.sm
+*.o
 
 # Ignore `bin` dir
 bin/
