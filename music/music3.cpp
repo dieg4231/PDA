@@ -8,6 +8,7 @@
 #include <jack/jack.h>
 
 // Include FFTW header
+#include <thread> 
 #include <Eigen/Eigen>
 #include <Eigen/Eigenvalues> 
 #include <complex> //needs to be included before fftw3.h for compatibility
@@ -15,18 +16,16 @@
 
 #include <iostream>
 
-
 #define WINDOW_SIZE 1024
 #define WINDOWS_PER_BUFF_0 6
 #define WINDOWS_PER_BUFF_AB 4
-#define NUM_CH  2
-#define N_SAMPLES_X_MUSIC 4
-#define SOUND_SPEED 343
+#define NUM_CH  3
+#define N_SAMPLES_X_MUSIC 6
+#define SOUND_SPEED 343.0
+#define RANGE 360
+#define N_FRECS 3
 
 //using Eigen::MatrixXd;
-
-
-
 
 FILE * fp;
 
@@ -36,9 +35,11 @@ double *hann_values;
 
 std::complex<double> *i_fft_a, *i_time_a, *o_fft_a, *o_time_a;
 std::complex<double> *i_fft_b, *i_time_b, *o_fft_b, *o_time_b;
+std::complex<double> *i_fft_c, *i_time_c, *o_fft_c, *o_time_c;
 
 fftw_plan i_forward_a, o_inverse_a;
 fftw_plan i_forward_b, o_inverse_b;
+fftw_plan i_forward_c, o_inverse_c;
 
 jack_port_t *input_port, *output_port;
 int buffers_size;
@@ -49,8 +50,6 @@ jack_client_t *client;
 double *freqs;
 double sample_rate;
 
-int t_0;
-int index_buff_0;
 
 jack_default_audio_sample_t **in, **out,mag_a,mag_b;
 
@@ -60,32 +59,54 @@ jack_port_t **output;
 
 float mic_distance;
 
-
-
-Eigen::MatrixXcd x(NUM_CH,N_SAMPLES_X_MUSIC*512);
-Eigen::MatrixXcd x_ct(N_SAMPLES_X_MUSIC,NUM_CH);
-Eigen::MatrixXcd x_aux(NUM_CH,NUM_CH);
-Eigen::MatrixXcd st_vec(NUM_CH,180);
-std::complex<double> music_spectrum[180];
-std::complex<double> s1[1000],s2[1000];
-
-double t[1000];
+Eigen::MatrixXcd *x;//(NUM_CH,N_SAMPLES_X_MUSIC) [6];
+std::complex<double>  **music_spectrum;
 
 int cta_n_samples_x_music=0;
-int max;
-double anlges[180];
-double freq =  1500;
+
 std::complex<double> imag(0.0,1.0);
-int cta = 0;
+int index_frex[] = {31,101,321,131,51,61};
+
+
+void music(double freq,Eigen::MatrixXcd x,std::complex<double> * music_spectrumt)
+{
+	Eigen::MatrixXcd x_ct(N_SAMPLES_X_MUSIC,NUM_CH);
+	Eigen::MatrixXcd x_aux(NUM_CH,NUM_CH);
+	Eigen::MatrixXcd st_vec(NUM_CH,RANGE);
+	int min =0;
+	int i;
+
+	x_ct = x.conjugate().transpose();
+
+	x_aux = (x*x_ct)/N_SAMPLES_X_MUSIC;
+
+	Eigen::ComplexEigenSolver<Eigen::MatrixXcd>  es(x_aux);
+	
+	for(i = 1; i < 3; i++)
+		if( es.eigenvalues()[i].real() < es.eigenvalues()[min].real()  )
+			min = i;
+	
+	for( i = 0; i < RANGE ; ++i)
+	{
+		st_vec(0,i) = 1;
+		st_vec(1,i) = exp( -imag * (double)2.0 * M_PI * freq * (double)(mic_distance / SOUND_SPEED) *  sin( ((float)i-180)*M_PI/180.0) );
+		st_vec(2,i) = exp( -imag * (double)2.0 * M_PI * freq * (double)(mic_distance / SOUND_SPEED) * -cos( ((float)i-180)*M_PI/180.0) );	     	
+	}
+		
+	for( i = 0; i < RANGE ; ++i)
+		music_spectrumt[i] = abs((std::complex<double>)( st_vec.col(i).transpose()*st_vec.col(i)  )/(std::complex<double>)(st_vec.col(i).transpose()*es.eigenvectors().col(min)*es.eigenvectors().col(min).transpose()*st_vec.col(i) ));
+}
+
+
 int jack_callback (jack_nframes_t nframes, void *arg)
 {
 	int i,j,k = 0;
+	
 	for(i = 0; i < NUM_CH; ++i)
 	{
 		in[i] = (jack_default_audio_sample_t *)jack_port_get_buffer(input[i],nframes);
 		out[i] = (jack_default_audio_sample_t *)jack_port_get_buffer(output[i],nframes);
 	}
-
 
 	for(j = 0; j < nframes; ++j)
 	{
@@ -93,95 +114,59 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 		out[1][j] = in[1][j];
 	}
 
-
-	for(j = 0; j < nframes; ++j)
-	{
-		i_time_a[j] = in[0][j];
-		i_time_b[j] = in[1][j];
-	}
-
-
-	fftw_execute(i_forward_a);
-	fftw_execute(i_forward_b);
-	
 	if( cta_n_samples_x_music < N_SAMPLES_X_MUSIC)
 	{
-		for (i = 0; i < 512; ++i)
+		for(j = 0; j < nframes; ++j)
 		{
-		x(0,cta)= (i_fft_a[i]);//1500 hz
-		x(1,cta)= (i_fft_b[i]);//1500 hz
-		++cta;
+			i_time_a[j] = in[0][j];
+			i_time_b[j] = in[1][j];
+			i_time_c[j] = in[2][j];
+		}
+
+		fftw_execute(i_forward_a);
+		fftw_execute(i_forward_b);
+		fftw_execute(i_forward_c);
+
+		for (i = 0; i < N_FRECS; ++i)
+		{
+			x[i](0,cta_n_samples_x_music)= (i_fft_a[index_frex[i]]);//1500 hz
+			x[i](1,cta_n_samples_x_music)= (i_fft_b[index_frex[i]]);//1500 hz
+			x[i](2,cta_n_samples_x_music)= (i_fft_c[index_frex[i]]);//1500 hz		
 		}
 		++cta_n_samples_x_music;
 	}
 	else
 	{
-		cta = 0;
+		std::thread th0 (music,index_frex[0],x[0],music_spectrum[0]);
+		std::thread th1 (music,index_frex[1],x[1],music_spectrum[1]); 
+		std::thread th2 (music,index_frex[2],x[2],music_spectrum[2]); 
+		//std::thread th3 (music,index_frex[3],x[3],music_spectrum[3]); 
+		//std::thread th4 (music,index_frex[4],x[4],music_spectrum[4]); 
+		//std::thread th5 (music,index_frex[5],x[5],music_spectrum[5]); 
 
-		freq =  freqs[31];
-		std::cout << "___________________" << std::endl;
-		//std::cout << "xxxxxxxxxxx" << std::endl;
-		//std::cout << x << std::endl;
-		//std::cout << "TTTTTTTTTTT" << std::endl;
-		x_ct = x.conjugate().transpose();
-		//std::cout << x_ct << std::endl;
-		//std::cout << "MULLLLLLLLLLLLLLLLLL" << std::endl;
-		//std::cout << x*x_ct << std::endl;
-		x_aux = (x*x_ct)/N_SAMPLES_X_MUSIC;
-
-
-      /*
-		x_aux(0,0)= std::complex<double>(1.00000 , 0.00000);
-		x_aux(0,1)= std::complex<double>(0.32426 , 0.94597);
+		th0.join(); 
+		th1.join(); 
+		th2.join(); 
+		//th3.join(); 
+		//th4.join(); 
+		//th5.join(); 
 		
-		x_aux(1,0)= std::complex<double>(0.32426 ,- 0.94597);
-		x_aux(1,1)= std::complex<double>(1.00000 , 0.00000);
+		std::cout << "-----"  << std::endl;
 
+		for( j = 1; j < N_FRECS ; ++j)
+			for( i = 0; i < RANGE ; ++i)
+				music_spectrum[0][i] += music_spectrum[j][i];
 
-*/
-		/*
-		x_aux(0,0)= std::complex<double>(2.0 , 0.0000);
-		x_aux(0,1)= std::complex<double>( -0.58451 , 1.36328 );
-		x_aux(0,2)= std::complex<double>(-0.13800 ,- 0.14499);
-		
-		x_aux(1,0)= std::complex<double>(-0.58451 ,- 1.36328);
-		x_aux(1,1)= std::complex<double>(2.00000 , 0.00000);
-		x_aux(1,2)= std::complex<double>(-0.58451 , 1.36328);
-
-		x_aux(2,0)= std::complex<double>(-0.13800 , 0.14499);
-		x_aux(2,1)= std::complex<double>(-0.58451 ,- 1.36328);
-		x_aux(2,2)= std::complex<double>(2.00000 , 0.00000);
-		*/
-		//std::cout << "XX:\n" << x_aux << std::endl ;
-
-
-		Eigen::ComplexEigenSolver<Eigen::MatrixXcd>  es(x_aux);
-		std::cout << "The eigenvalues of A are:\n" << es.eigenvalues().real() << std::endl << std::endl;
-		//std::cout << "The eigenvectors of A are (one vector per column):\n" << es.eigenvectors().real() << std::endl << std::endl;
-
-
-		max =0;// ((double)es.eigenvalues()[0].real() > (double)es.eigenvalues()[1].real() )? 1:0;
-
-		std::cout << "El ruidoso:  " << max << " \n" << std::endl << std::endl;
-
-
-		for( i = 0; i <180; ++i)
+		//std::cout << std::fixed;
+    	//std::cout << std::setprecision(2);
+		for( i = 0; i < RANGE ; ++i)
+		//	std::cout << music_spectrum[0][i].real()  << std::endl;
 		{
-			st_vec(0,i) = 1;
-			st_vec(1,i) = exp( -imag * (double)2.0 * M_PI * freq * (double)(mic_distance / SOUND_SPEED) * sin((i-90)*M_PI/180) );
-		//	st_vec(2,i) = exp( -imag * (double)2.0 * M_PI * freq * (double)(2.0*mic_distance / SOUND_SPEED) * sin((i-90)*M_PI/180) );	     	
-		} 
-		
-		for( i = 0; i <180; ++i)
-		{
-			music_spectrum[i]= (std::complex<double>)( st_vec.col(i).transpose()*st_vec.col(i)  )/(std::complex<double>)(st_vec.col(i).transpose()*es.eigenvectors().col(max)*es.eigenvectors().col(max).transpose()*st_vec.col(i) );
-			std::cout << abs(music_spectrum[i])   << std::endl;
+			fprintf(fp,"%.3f\n", music_spectrum[0][i].real());
+			fflush(fp);
 		}
-
-
-
-
-
+		fprintf(fp,"-----\n");
+		fflush(fp);
 		cta_n_samples_x_music=0;
 	}
 
@@ -199,6 +184,7 @@ void jack_shutdown (void *arg){
 
 
 int main (int argc, char *argv[]) {
+
 	const char *client_name = "MUMUMUSIC";
 	jack_options_t options = JackNoStartServer;
 	jack_status_t status;
@@ -206,19 +192,28 @@ int main (int argc, char *argv[]) {
 	char name_aux[50];
 
 
-	for( i = 0; i <180; ++i)
-		anlges[i] = i;  
-
-
-	/*fp = popen("python simulator_node.py", "w");
+	fp = popen("python simulator_node.py", "w");
     if (fp == NULL) {
         printf("popen error\n");
         exit(1);
-    }*/
-
-
+    }
 
 	mic_distance = atof(argv[1]);
+
+
+	x = (Eigen::MatrixXcd *)malloc(N_FRECS*sizeof(Eigen::MatrixXcd));
+
+	for(i=0;i<N_FRECS;i++)
+	{
+		x[i]= Eigen::MatrixXcd(NUM_CH,N_SAMPLES_X_MUSIC) ;
+	}
+
+	music_spectrum = (std::complex<double>  **)malloc(N_FRECS*sizeof(std::complex<double>  *));
+	
+	for(i = 0; i < N_FRECS; i++)
+		music_spectrum[i] = (std::complex<double> *) malloc(RANGE*sizeof(std::complex<double> ));
+
+	
 
 	//JACK PORTS
 	input = (jack_port_t**)malloc(NUM_CH*sizeof(jack_port_t*));
@@ -277,9 +272,6 @@ int main (int argc, char *argv[]) {
 	}
 	
 
-	
-
-
 	//preparing FFTW3 buffers
 	//preparing FFTW3 buffers
 	i_fft_a  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
@@ -297,6 +289,14 @@ int main (int argc, char *argv[]) {
 	
 	i_forward_b = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(i_time_b), reinterpret_cast<fftw_complex*>(i_fft_b ), FFTW_FORWARD, FFTW_MEASURE);
 	o_inverse_b = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(o_fft_b ), reinterpret_cast<fftw_complex*>(o_time_b), FFTW_BACKWARD, FFTW_MEASURE);
+
+	i_fft_c  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	i_time_c = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_fft_c  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_time_c = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	
+	i_forward_c = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(i_time_c), reinterpret_cast<fftw_complex*>(i_fft_c ), FFTW_FORWARD, FFTW_MEASURE);
+	o_inverse_c = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(o_fft_c ), reinterpret_cast<fftw_complex*>(o_time_c), FFTW_BACKWARD, FFTW_MEASURE);
 	
 	/* create the agent input port */
 	for(i = 0; i< NUM_CH; ++i)
@@ -350,15 +350,13 @@ int main (int argc, char *argv[]) {
 	for(i=0;i<=3;i++)
 		printf("Aqui  %s \n",serverports_names[i]);
 
-	/*for(i = 0; i < NUM_CH; ++i)
+	for(i = 0; i < NUM_CH; ++i)
 	{
-		if (jack_connect (client, serverports_names[i], jack_port_name (input[i]))) {
-			printf("Cannot connect input port.\n");
-			exit (1);
-		}
+		//if (jack_connect (client, serverports_names[i], jack_port_name (input[i]))) {
+		//	printf("Cannot connect input port.\n");
+		//	exit (1);
+		//}
 	}
-	*/
-
 	// free serverports_names variable for reuse in next part of the code
 	free (serverports_names);
 	
@@ -371,12 +369,14 @@ int main (int argc, char *argv[]) {
 		exit (1);
 	}
 	// Connect the first available to our output port
-	for(i = 0; i < NUM_CH; ++i)
+	for(i = 0; i < 2; ++i)
 	{
+		
 		if (jack_connect (client, jack_port_name (output[i]), serverports_names[i])) {
 			printf("Cannot connect input port.\n");
 			exit (1);
 		}
+		
 	}
 	// free serverports_names variable, we're not going to use it again
 	free (serverports_names);
