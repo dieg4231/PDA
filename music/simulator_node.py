@@ -19,7 +19,7 @@ if __name__ == "__main__":
 		if str(i) == "-----\n":
 			print("xxx")
 			for i in val:
-				if i > 100:
+				if i > 10:
 					gui.handle_service(val)
 					break
 			val = []

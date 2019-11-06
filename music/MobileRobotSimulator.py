@@ -26,7 +26,7 @@ class MobileRobotSimulator(threading.Thread):
 		self.mapX = 1 
 		self.mapY = 1
 		# canvas size in pixels
-		self.canvasX= (360*3)+20
+		self.canvasX= (180*3)+20
 		self.canvasY= 600
 		# robot position and angle
 		self.robotAngle=0
@@ -97,13 +97,13 @@ class MobileRobotSimulator(threading.Thread):
 		self.start()
 
 	def kill(self):  # When press (x) window
-		print("Bye prro")
+		print("Bye")
 		self.root.quit()
 
 	def new_angle(self,*args):
 		maxx = 0;
 
-		for i in range(1,360):
+		for i in range(1,180):
 			if self.spectrum[maxx] < self.spectrum[i]:
 				maxx=i
 
@@ -113,7 +113,7 @@ class MobileRobotSimulator(threading.Thread):
 		self.bars = []
 #		300 = self.spectrum[maxx]	
 		cta=0
-		for i in xrange(0,(360*3),3):
+		for i in xrange(0,(180*3),3):
 			val =(self.spectrum[cta]*300)/self.spectrum[maxx]
 			self.bars.append(self.w.create_line(i+10,self.canvasY/2-2 ,i +10,self.canvasY/2-val  ,fill = "#0000FF")) 
 			cta = cta +1 
@@ -174,9 +174,9 @@ class MobileRobotSimulator(threading.Thread):
 
 		self.scale = self.w.create_line(10,self.canvasY/2 ,self.canvasX-10 ,self.canvasY/2  ,fill = "#0000FF") 
 		
-		for i in xrange(0,(360*3),18):
+		for i in xrange(0,(180*3),18):
 			self.w.create_line(i+10,self.canvasY/2-2 ,i +10,self.canvasY/2+2  ,fill = "#0000FF") 
-			self.w.create_text(i+10,self.canvasY/2 +30,fill="darkblue",font="Times 12 italic ",angle=90,text=str( (i/3)-180 ) )
+			self.w.create_text(i+10,self.canvasY/2 +30,fill="darkblue",font="Times 12 italic ",angle=90,text=str( (i/3)-90 ) )
 			
 		self.a = IntVar(value=3)
 		self.a.trace("w", self.new_angle)
