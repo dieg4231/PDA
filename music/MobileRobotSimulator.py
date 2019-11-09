@@ -20,13 +20,13 @@ class MobileRobotSimulator(threading.Thread):
 		threading.Thread.__init__(self)
 
 		self.spectrum = []
-
+		self.angles =180;
 		self.stopped = False 
 		# map size in meters
 		self.mapX = 1 
 		self.mapY = 1
 		# canvas size in pixels
-		self.canvasX= (180*3)+20
+		self.canvasX= (self.angles*3)+20
 		self.canvasY= 600
 		# robot position and angle
 		self.robotAngle=0
@@ -100,28 +100,42 @@ class MobileRobotSimulator(threading.Thread):
 		print("Bye")
 		self.root.quit()
 
+	def pause(self,*args):
+		self.w.itemconfig(self.pause_line, fill='#EE0000')
+		for i in self.bars:
+			self.w.delete(i)
+		self.bars = []
+		self.w.update() 
+
 	def new_angle(self,*args):
 		maxx = 0;
 
-		for i in range(1,180):
+		for i in range(1,self.angles):
 			if self.spectrum[maxx] < self.spectrum[i]:
 				maxx=i
 
-		print(maxx)
+		#print(maxx)
 		for i in self.bars:
 			self.w.delete(i)
 		self.bars = []
 #		300 = self.spectrum[maxx]	
 		cta=0
-		for i in xrange(0,(180*3),3):
+		for i in xrange(0,(self.angles*3),3):
 			val =(self.spectrum[cta]*300)/self.spectrum[maxx]
 			self.bars.append(self.w.create_line(i+10,self.canvasY/2-2 ,i +10,self.canvasY/2-val  ,fill = "#0000FF")) 
-			cta = cta +1 
+			cta = cta +1
+
+		self.w.itemconfig(self.pause_line, fill='#00EE00')
+		self.w.update() 
+
   			
 
 	def handle_service(self,spectrum):
 		self.spectrum = spectrum
 		self.a.set(1)
+
+	def handle_pausa(self):
+		self.b.set(1)
 
 	def gui_init(self):
 
@@ -174,12 +188,17 @@ class MobileRobotSimulator(threading.Thread):
 
 		self.scale = self.w.create_line(10,self.canvasY/2 ,self.canvasX-10 ,self.canvasY/2  ,fill = "#0000FF") 
 		
-		for i in xrange(0,(180*3),18):
+		for i in xrange(0,(self.angles*3),18):
 			self.w.create_line(i+10,self.canvasY/2-2 ,i +10,self.canvasY/2+2  ,fill = "#0000FF") 
-			self.w.create_text(i+10,self.canvasY/2 +30,fill="darkblue",font="Times 12 italic ",angle=90,text=str( (i/3)-90 ) )
-			
+			self.w.create_text(i+10,self.canvasY/2 +30,fill="darkblue",font="Times 12 italic ",angle=90,text=str( (i/3)-(self.angles/2) ) )
+		radio=20
+		self.pause_line = self.w.create_oval(100-radio,self.canvasY-100-radio, 100+radio,self.canvasY-100+radio   , outline="#FFFFFF", fill="#111111", width=1)
+
 		self.a = IntVar(value=3)
 		self.a.trace("w", self.new_angle)
+
+		self.b = IntVar(value=3)
+		self.b.trace("w", self.pause)
 
 
 	def run(self):	

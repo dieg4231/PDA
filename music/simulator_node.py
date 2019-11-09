@@ -19,10 +19,12 @@ if __name__ == "__main__":
 		if str(i) == "-----\n":
 			print("xxx")
 			for i in val:
-				if i > 10:
+				if i > -100:
 					gui.handle_service(val)
 					break
 			val = []
+		elif str(i) == "*\n":
+			gui.handle_pausa()
 		else:
 			val.append(float(i))
 

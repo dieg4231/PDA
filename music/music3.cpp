@@ -4,7 +4,6 @@
 #include <string.h>
 #include <signal.h>
 #include <math.h>
-
 #include <jack/jack.h>
 
 // Include FFTW header
@@ -19,19 +18,13 @@
 #define WINDOW_SIZE 1024
 #define WINDOWS_PER_BUFF_0 6
 #define WINDOWS_PER_BUFF_AB 4
-#define NUM_CH  2
-#define N_SAMPLES_X_MUSIC 20
-#define SOUND_SPEED 343.0
-#define RANGE 180
-#define N_FRECS 4
-
-//using Eigen::MatrixXd;
+#define NUM_CH  3
+#define N_SAMPLES_X_MUSIC 4
+#define SOUND_SPEED 343
+#define RANGE 360
+#define N_FRECS 6
 
 FILE * fp;
-
-// Hann window
-void hann(int size);
-double *hann_values;
 
 std::complex<double> *i_fft_a, *i_time_a, *o_fft_a, *o_time_a;
 std::complex<double> *i_fft_b, *i_time_b, *o_fft_b, *o_time_b;
@@ -42,16 +35,12 @@ fftw_plan i_forward_b, o_inverse_b;
 fftw_plan i_forward_c, o_inverse_c;
 
 jack_port_t *input_port, *output_port;
-int buffers_size;
-
 jack_client_t *client;
-
 
 double *freqs;
 double sample_rate;
 
-
-jack_default_audio_sample_t **in, **out,mag_a,mag_b;
+jack_default_audio_sample_t **in, **out;
 
 jack_port_t **input;
 jack_port_t **output;
@@ -59,66 +48,71 @@ jack_port_t **output;
 
 float mic_distance;
 
-Eigen::MatrixXcd *x;//(NUM_CH,N_SAMPLES_X_MUSIC) [6];
-std::complex<double>  **music_spectrum;
+
+Eigen::MatrixXcd *x;//(NUM_CH,N_SAMPLES_X_MUSIC*512) [6];
+std::complex<double> music_spectrum[N_FRECS][RANGE];
+
+std::complex<double> music_spectrum0[RANGE];
+std::complex<double> music_spectrum1[RANGE];
+std::complex<double> music_spectrum2[RANGE];
+std::complex<double> music_spectrum3[RANGE];
+
 
 int cta_n_samples_x_music=0;
-
+double anlges[RANGE];
+double freq ;
 std::complex<double> imag(0.0,1.0);
 int index_frex[N_FRECS] ;
+
+float avg=0;
+int cta_callado=0;
+double max_energy =0;
+std::complex<double> norm;
+int max_energy_index = 0;
 bool once = true;
 
 
-void music(double freq,Eigen::MatrixXcd x,std::complex<double> * music_spectrumt)
+void music(int start,int end)
 {
 	Eigen::MatrixXcd x_ct(N_SAMPLES_X_MUSIC,NUM_CH);
 	Eigen::MatrixXcd x_aux(NUM_CH,NUM_CH);
 	Eigen::MatrixXcd st_vec(NUM_CH,RANGE);
-	int min =0;
 	int i;
+	int max;
 
-	
+	for(int j=start;j< start+end;++j)
+	{
 
-	x_ct = x.conjugate().transpose();
-
-	x_aux = (x*x_ct)/N_SAMPLES_X_MUSIC;
-
-/*
-	//freq = 2.5;
-	x_aux(0,0) = std::complex<double> ( 200.00 ,   0.00 );
-	x_aux(0,1) = std::complex<double> ( 179.39 ,  88.42 );
-	x_aux(1,0) = std::complex<double> ( 179.39 , -88.42 );
-	x_aux(1,1) = std::complex<double> ( 200.00 ,   0.00 );
-*/
-	std::cout << x_aux << std::endl;
-
+	x_ct = x[j].transpose().conjugate();
+	x_aux = (x[j]*x_ct)/N_SAMPLES_X_MUSIC;
 
 	Eigen::ComplexEigenSolver<Eigen::MatrixXcd>  es(x_aux);
-	
-	for(i = 1; i < NUM_CH; i++)
-		if( es.eigenvalues()[i].real() < es.eigenvalues()[min].real()  )
-			min = i;
-
-	std::cout << es.eigenvalues() << std::endl;
-	
+			
+	/*Encdontrando  el indice del eigenvalor mas chico*/
+	max =0;
+	for(i =1; i<NUM_CH;i++)
+		if( es.eigenvalues()[i].real() < es.eigenvalues()[max].real()  )
+			max = i;
+			
 	for( i = 0; i < RANGE ; ++i)
 	{
 		st_vec(0,i) = 1;
-		st_vec(1,i) = exp( -imag * (double)2.0 * M_PI * freq * (double)(mic_distance / SOUND_SPEED) * -sin( ( (float) i-90)*M_PI/180.0 )  );
-		//st_vec(2,i) = exp( -imag * (double)2.0 * M_PI * freq * (double)(mic_distance / SOUND_SPEED) * -cos( ( (float) 150-i-180)*M_PI/180.0 ) );	     	
+		st_vec(1,i) = exp( -imag * (double)2.0 * M_PI * freqs[index_frex[j]] * (double)(mic_distance / SOUND_SPEED) *  -sin( ((float)i )*M_PI/180.0) );
+		st_vec(2,i) = exp( -imag * (double)2.0 * M_PI * freqs[index_frex[j]] * (double)(mic_distance / SOUND_SPEED) * -cos( ((float)(150-i) )*M_PI/180.0) );	     	
+		//std::cout <<"vv "<< (float)i*M_PI/180.0 << std::endl;
 	}
-		
-	for( i = 0; i < RANGE ; ++i)
-		music_spectrumt[i] = abs((std::complex<double>)( st_vec.col(i).transpose()*st_vec.col(i)  )/(std::complex<double>)(st_vec.col(i).transpose()*es.eigenvectors().col(min)*es.eigenvectors().col(min).transpose()*st_vec.col(i) ));
-}
 
+	for( i = 0; i < RANGE ; ++i)
+		music_spectrum[j][i]= (std::complex<double>)( st_vec.col(i).transpose()*st_vec.col(i)  )/(std::complex<double>)(st_vec.col(i).transpose()*es.eigenvectors().col(max)*es.eigenvectors().col(max).transpose()*st_vec.col(i) );	
+	}
+}
 
 int jack_callback (jack_nframes_t nframes, void *arg)
 {
 	int i,j,k = 0;
-	double max_energy =0;
-	int max_energy_index = 0;
-	
+
+	avg=0;
+
 	for(i = 0; i < NUM_CH; ++i)
 	{
 		in[i] = (jack_default_audio_sample_t *)jack_port_get_buffer(input[i],nframes);
@@ -131,115 +125,109 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 		out[1][j] = in[1][j];
 	}
 
-	if( cta_n_samples_x_music < N_SAMPLES_X_MUSIC)
+	for(j = 0; j < nframes; ++j)
 	{
-		for(j = 0; j < nframes; ++j)
-		{
-			i_time_a[j] = in[0][j];
-			i_time_b[j] = in[1][j];
-			//i_time_c[j] = in[2][j];
-		}
+		i_time_a[j] = in[0][j];
+		i_time_b[j] = in[1][j];
+		i_time_c[j] = in[2][j];	
+	}
 
-		fftw_execute(i_forward_a);
-		fftw_execute(i_forward_b);
-		//fftw_execute(i_forward_c);
+	fftw_execute(i_forward_a);
+	fftw_execute(i_forward_b);
+	fftw_execute(i_forward_c);
 
-		if(once)
-		{
-			once = false;
-			max_energy =0;
-			for( i = 1; i <= nframes/2; ++i )
-				{
-					if ( max_energy < fabs(i_fft_a[i].real()) )
-					{
-						index_frex[0] = i;
-						max_energy=fabs(i_fft_a[i].real());
-					}
-				}
+	/* Boton rojo */
+	for( i = 1; i <= nframes / 2; ++i ) avg += i_fft_a[i].real();
+	avg /= nframes / 2;
+	avg > 0.001 ? cta_callado=0  : cta_callado ++ ;
+	if( cta_callado > 5)
+	{
+		fprintf(fp,"*\n");
+		fflush(fp);
+		return 0;
+	}
+	/*--------------------------------------------*
 
+	/*Las frecuencias más reprecentativas*/
+	if(once)
+	{
 
-			for (j = 1; j < N_FRECS; ++j)
+		once = false;
+		max_energy =0;
+
+		for( i = 1; i <= nframes/20; ++i )
+			if ( max_energy < fabs(i_fft_a[i].real()) )
 			{
-				max_energy = 0;
-				for(int i = 0; i <= nframes/2; ++i )
+				index_frex[0] = i;
+				max_energy=fabs(i_fft_a[i].real());
+			}
+		for (j = 1; j < N_FRECS; ++j)
+		{
+			max_energy = 0;
+			for(int i = 0; i <= nframes/20; ++i )
+			{
+				if ( max_energy < fabs(i_fft_a[i].real()) &&  fabs(i_fft_a[i].real()) <  fabs(i_fft_a[index_frex[j-1]].real()) &&  fabs(i_fft_a[i].real()) !=  fabs(i_fft_a[index_frex[j-1]].real()) )
 				{
-					if ( max_energy < fabs(i_fft_a[i].real()) &&  fabs(i_fft_a[i].real()) <  fabs(i_fft_a[index_frex[j-1]].real()) &&  fabs(i_fft_a[i].real()) !=  fabs(i_fft_a[index_frex[j-1]].real()) )
-					{
-			//			std::cout << "kaa" << max_energy<< " "  << abs(i_fft_a[i].real()) << " "  << abs(i_fft_a[index_frex[j-1]].real()) << std::endl;
-			
-						index_frex[j] = i;
-						max_energy=abs(i_fft_a[i].real());
-					
-					}else
-					{
-			//			std::cout << "ki" << max_energy<< " "  << abs(i_fft_a[i].real()) << " "  << abs(i_fft_a[index_frex[j-1]].real()) << std::endl;
-					}
+					index_frex[j] = i;
+					max_energy=abs(i_fft_a[i].real());
 				}
 			}
-			
-			std::cout << "freqs -----"  << std::endl;
-			for (j = 0; j < N_FRECS; ++j)
-				std::cout << "FF " << index_frex[j]  << " " << fabs(i_fft_a[index_frex[j]].real()) << std::endl;
-			
-			std::cout << "Val---------------------------"  << std::endl;
-			
-			//for(int i = 0; i <= nframes/2; ++i )
-			//	std::cout << i_fft_a[i].real()  << std::endl;
-
-			
-			
 		}
 
+		std::cout << "Frecuencias seleccionadas -----"  << std::endl;
+		for (j = 0; j < N_FRECS; ++j)
+			std::cout << "FF " << index_frex[j] << " " <<  freqs[index_frex[j]] << " " << fabs(i_fft_a[index_frex[j]].real()) << std::endl;
+	}
+	/*---------------------------------------------------------------*/
+
+	if( cta_n_samples_x_music < N_SAMPLES_X_MUSIC)
+	{
 		for (i = 0; i < N_FRECS; ++i)
 		{
-			x[i](0,cta_n_samples_x_music)= (i_fft_a[index_frex[0]]);//1500 hz
-			x[i](1,cta_n_samples_x_music)= (i_fft_b[index_frex[0]]);//1500 hz
-			//x[i](2,cta_n_samples_x_music)= (i_fft_c[index_frex[0]]);//1500 hz		
+			
+			x[i](0,cta_n_samples_x_music)= (i_fft_a[index_frex[i]]);
+			x[i](1,cta_n_samples_x_music)= (i_fft_b[index_frex[i]]);
+			x[i](2,cta_n_samples_x_music)= (i_fft_c[index_frex[i]]);
+			//x[i](2,cta)= (i_fft_c[index_frex[i]]);//1500 hz
 		}
 		++cta_n_samples_x_music;
-
-		
-
 	}
 	else
 	{
-		once = true;
-		std::thread th0 (music,index_frex[0],x[0],music_spectrum[0]);
-		std::thread th1 (music,index_frex[1],x[1],music_spectrum[1]); 
-		std::thread th2 (music,index_frex[2],x[2],music_spectrum[2]); 
-		std::thread th3 (music,index_frex[3],x[3],music_spectrum[3]); 
-		//std::thread th4 (music,index_frex[4],x[4],music_spectrum[4]); 
-		//std::thread th5 (music,index_frex[5],x[5],music_spectrum[5]); 
-
-		th0.join(); 
-		th1.join(); 
-		th2.join(); 
-		th3.join(); 
-		//th4.join(); 
-		//th5.join();
 		
-		std::cout << "-----"  << std::endl;
+		once = true;
+		std::cout << "___________________" << std::endl;
+		
+		std::thread th0 (music,0,3);
+		std::thread th1 (music,3,3);
+		//std::thread th2 (music,8,4);
+		//std::thread th3 (music,12,4);
+
+		th0.join();
+		th1.join();
+		//th2.join();
+		//th3.join();
+
+
+		//for(j=0;j<N_FRECS;j++)
+		{
+
+
+		}
 
 		for( j = 1; j < N_FRECS ; ++j)
 			for( i = 0; i < RANGE ; ++i)
-				music_spectrum[0][i] += music_spectrum[j][i];
-
-		//std::cout << std::fixed;
-    	//std::cout << std::setprecision(2);
-		
+				music_spectrum[0][i] *= music_spectrum[j][i];
 
 		for( i = 0; i < RANGE ; ++i)
-		//	std::cout << music_spectrum[0][i].real()  << std::endl;
 		{
-			std::cout << music_spectrum[0][i].real()  << std::endl;
-			fprintf(fp,"%.3f\n", music_spectrum[0][i].real()/(double)N_FRECS);
+			fprintf(fp,"%.3f\n", abs(music_spectrum[0][i]));
 			fflush(fp);
 		}
 		fprintf(fp,"-----\n");
 		fflush(fp);
 		cta_n_samples_x_music=0;
 	}
-
 	return 0;
 }
 
@@ -262,6 +250,11 @@ int main (int argc, char *argv[]) {
 	char name_aux[50];
 
 
+		
+
+	for( i = 0; i <180; ++i)
+		anlges[i] = i;  
+
 	fp = popen("python simulator_node.py", "w");
     if (fp == NULL) {
         printf("popen error\n");
@@ -272,18 +265,10 @@ int main (int argc, char *argv[]) {
 
 
 	x = (Eigen::MatrixXcd *)malloc(N_FRECS*sizeof(Eigen::MatrixXcd));
-
 	for(i=0;i<N_FRECS;i++)
 	{
 		x[i]= Eigen::MatrixXcd(NUM_CH,N_SAMPLES_X_MUSIC) ;
 	}
-
-	music_spectrum = (std::complex<double>  **)malloc(N_FRECS*sizeof(std::complex<double>  *));
-	
-	for(i = 0; i < N_FRECS; i++)
-		music_spectrum[i] = (std::complex<double> *) malloc(RANGE*sizeof(std::complex<double> ));
-
-	
 
 	//JACK PORTS
 	input = (jack_port_t**)malloc(NUM_CH*sizeof(jack_port_t*));
@@ -330,8 +315,7 @@ int main (int argc, char *argv[]) {
 	sample_rate = (double)jack_get_sample_rate(client);
 	int nframes = jack_get_buffer_size (client);
 	
-	hann(nframes);
-	
+
 
 	freqs = (double *) malloc(sizeof(double)*nframes);
 	for(int i = 0; i <= nframes/2; ++i )
@@ -360,6 +344,13 @@ int main (int argc, char *argv[]) {
 	i_forward_b = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(i_time_b), reinterpret_cast<fftw_complex*>(i_fft_b ), FFTW_FORWARD, FFTW_MEASURE);
 	o_inverse_b = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(o_fft_b ), reinterpret_cast<fftw_complex*>(o_time_b), FFTW_BACKWARD, FFTW_MEASURE);
 
+	i_fft_c  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	i_time_c = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_fft_c  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_time_c = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	
+	i_forward_c = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(i_time_c), reinterpret_cast<fftw_complex*>(i_fft_c ), FFTW_FORWARD, FFTW_MEASURE);
+	o_inverse_c = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(o_fft_c ), reinterpret_cast<fftw_complex*>(o_time_c), FFTW_BACKWARD, FFTW_MEASURE);
 	
 	/* create the agent input port */
 	for(i = 0; i< NUM_CH; ++i)
@@ -432,14 +423,14 @@ int main (int argc, char *argv[]) {
 		exit (1);
 	}
 	// Connect the first available to our output port
-	for(i = 0; i < 2; ++i)
+	for(i = 0; i < NUM_CH; ++i)
 	{
-		
+		/*
 		if (jack_connect (client, jack_port_name (output[i]), serverports_names[i])) {
 			printf("Cannot connect input port.\n");
 			exit (1);
 		}
-		
+		*/
 	}
 	// free serverports_names variable, we're not going to use it again
 	free (serverports_names);
@@ -457,21 +448,4 @@ int main (int argc, char *argv[]) {
 	jack_client_close (client);
 	exit (0);
 }
-
-
-void hann(int size )
-{
-	int i;
-	
-	hann_values = (double *)malloc(sizeof(double)*size);
-	for ( i = 0; i < size; i++) 
-	    hann_values[i] = 0.5 * (1 - cos( 2 * M_PI * i/ (size - 1.0) ));
-}
-
-
-
-
-
-
-
 
