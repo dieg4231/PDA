@@ -19,8 +19,8 @@ class MobileRobotSimulator(threading.Thread):
 	def __init__(self):
 		threading.Thread.__init__(self)
 
-		self.spectrum = []
-		self.angles =180;
+		self.spectrum =  np.zeros(360)
+		self.angles =360;
 		self.stopped = False 
 		# map size in meters
 		self.mapX = 1 
@@ -121,7 +121,14 @@ class MobileRobotSimulator(threading.Thread):
 #		300 = self.spectrum[maxx]	
 		cta=0
 		for i in xrange(0,(self.angles*3),3):
-			val =(self.spectrum[cta]*300)/self.spectrum[maxx]
+			
+			try:
+				val =(self.spectrum[cta]*300)/self.spectrum[maxx]
+			except:
+				val = 0;
+				print("no mms")
+
+
 			self.bars.append(self.w.create_line(i+10,self.canvasY/2-2 ,i +10,self.canvasY/2-val  ,fill = "#0000FF")) 
 			cta = cta +1
 
@@ -131,7 +138,7 @@ class MobileRobotSimulator(threading.Thread):
   			
 
 	def handle_service(self,spectrum):
-		self.spectrum = spectrum
+		self.spectrum = ( np.array(spectrum)+(np.array(self.spectrum)) )/2
 		self.a.set(1)
 
 	def handle_pausa(self):
