@@ -22,7 +22,7 @@
 #define N_SAMPLES_X_MUSIC 10
 #define SOUND_SPEED 343
 #define RANGE 360
-#define N_FRECS 4
+#define N_FRECS 8
 
 #define SIZE_BUFFRS 72
 
@@ -226,13 +226,13 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 		
 		std::thread th0 (music,0,2);
 		std::thread th1 (music,2,2);
-		//std::thread th2 (music,4,2);
-		//std::thread th3 (music,6,2);
+		std::thread th2 (music,4,2);
+		std::thread th3 (music,6,2);
 
 		th0.join();
 		th1.join();
-		//th2.join();
-		//th3.join();
+		th2.join();
+		th3.join();
 
 		for( j = 1; j < N_FRECS ; ++j)
 			for( i = 0; i < RANGE ; ++i)

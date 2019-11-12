@@ -138,7 +138,7 @@ class MobileRobotSimulator(threading.Thread):
   			
 
 	def handle_service(self,spectrum):
-		self.spectrum = ( np.array(spectrum)+(np.array(self.spectrum)) )/2
+		self.spectrum = ( np.array(spectrum)*.8+(np.array(self.spectrum)) )
 		self.a.set(1)
 
 	def handle_pausa(self):
