@@ -1,5 +1,5 @@
 # Ignore all
-*
+#/aira/
 
 # Unignore all with extensions
 #!*.*
@@ -7,13 +7,15 @@
 # Unignore all dirs
 !*/
 
+/aira/
 ### Above combination will ignore all files without extension ###
 
 # Ignore files with extension `.class` & `.sm`
 *.class
 *.sm
 *.o
-
+*.tar.gz
+*.pyc
 # Ignore `bin` dir
 bin/
 # or

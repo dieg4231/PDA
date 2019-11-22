@@ -7,22 +7,35 @@
 #include <jack/jack.h>
 
 // Include FFTW header
-#include <complex.h> //needs to be included before fftw3.h for compatibility
+#include <thread> 
+#include <Eigen/Eigen>
+#include <Eigen/Eigenvalues> 
+#include <complex> //needs to be included before fftw3.h for compatibility
 #include <fftw3.h>
 
+#include <iostream>
 
+#define WINDOW_SIZE 1024
+#define WINDOWS_PER_BUFF_0 6
+#define WINDOWS_PER_BUFF_AB 4
 #define NUM_CH  3
+#define N_SAMPLES_X_MUSIC 10
+#define SOUND_SPEED 343
+#define RANGE 360
+#define N_FRECS 4
 
+#define SIZE_BUFFRS 72
 
+float angle_arr = 0;
 
+FILE * fp;
 
+std::complex<double> *i_fft_a, *i_time_a, *o_fft_a, *o_time_a,***buffer_0;
+std::complex<double> *i_fft_b, *i_time_b, *o_fft_b, *o_time_b;
+std::complex<double> *i_fft_c, *i_time_c, *o_fft_c, *o_time_c;
 
-
-
-complex *i_fft_a, *i_time_a, *o_fft_a, *o_time_a,***buffer_0;
-complex *i_fft_b, *i_time_b, *o_fft_b, *o_time_b;
-complex *i_fft_c, *i_time_c, *o_fft_c, *o_time_c;
-
+std::complex<double> buffer_aplaztado[SIZE_BUFFRS];
+std::complex<double> exponentes[2][WINDOW_SIZE];
 
 fftw_plan i_forward_a, o_inverse_a;
 fftw_plan i_forward_b, o_inverse_b;
@@ -40,18 +53,45 @@ jack_port_t **input;
 jack_port_t **output;
 
 
+float mic_distance;
 
+
+Eigen::MatrixXcd *x,*x_ct,*x_aux;
+
+std::complex<double> music_spectrum[N_FRECS][RANGE];
+
+
+int cta_n_samples_x_music = 0;
+double anlges[RANGE];
+double freq ;
+std::complex<double> imag(0.0,1.0);
+int index_frex[N_FRECS] ;
+
+float avg=0;
+int cta_callado=0;
+double max_energy =0;
+std::complex<double> norm;
+int max_energy_index = 0;
+bool once = true;
+
+
+
+Eigen::MatrixXcd signall(NUM_CH, WINDOW_SIZE);
+Eigen::MatrixXcd  st_vec(NUM_CH, WINDOW_SIZE);
 
 int jack_callback (jack_nframes_t nframes, void *arg)
 {
 	int i,j,k = 0;
 
+	avg=0;
 
 	for(i = 0; i < NUM_CH; ++i)
 	{
 		in[i] = (jack_default_audio_sample_t *)jack_port_get_buffer(input[i],nframes);
 		out[i] = (jack_default_audio_sample_t *)jack_port_get_buffer(output[i],nframes);
 	}
+
+
 
 	for(j = 0; j < nframes; ++j)
 	{
@@ -64,39 +104,32 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 	fftw_execute(i_forward_b);
 	fftw_execute(i_forward_c);
 
-	for(i = 0; i < nframes; i++){
-		//if(abs(freqs[i]) > 8000)
-		//o_fft_a[i] = i_fft_a[i];///10;
-		//o_fft_b[i] = i_fft_b[i];
-		//o_fft_c[i] = i_fft_c[i];
-	
-		if( ( (i % 2) == 0) &&  i < 10) 
-		{
-			o_fft_a[i] = i_fft_a[i]*100.0;
-			o_fft_b[i] = i_fft_b[i]*100.0;
-			o_fft_c[i] = i_fft_c[i]*100.0;
-		}
-		else
-		{
-			o_fft_a[i] = i_fft_a[i]/100;
-			o_fft_b[i] = i_fft_b[i]/100;	
-			o_fft_c[i] = i_fft_c[i]/100;	
-		}
-		
+	for(j = 0; j < nframes; ++j)
+	{
+		signall(0,j) = i_fft_a[j];
+		signall(1,j) = i_fft_b[j];
+		signall(2,j) = i_fft_c[j];	
 	}
+
+	for( i = 0; i < nframes ; ++i)
+		{
+			st_vec(0,i) = 1;
+			st_vec(1,i) = exp(  exponentes[0][i] * freqs[i] );
+			st_vec(2,i) = exp(  exponentes[1][i] * freqs[i] );	     	
+		}
+
+	for( i = 0; i < nframes ; ++i)	
+		o_fft_a[i] = (std::complex<double>)( st_vec.col(i).transpose().conjugate() *  signall.col(i) )/ (std::complex<double>)NUM_CH; 
+
+
+	//for(j = 0; j < nframes; ++j)
+	//	o_fft_a[j] = (std::complex<double>)( st_vec(0,j) + st_vec(1,j) + st_vec(2,j) ) / (std::complex<double>)NUM_CH;	
 
 	fftw_execute(o_inverse_a);
-	fftw_execute(o_inverse_b);
-	fftw_execute(o_inverse_c);
-	for(i = 0; i < nframes; i++){
-		out[0][i] = creal(o_time_a[i])/nframes; //fftw3 requiere normalizar su salida real de esta manera
-		out[1][i] = creal(o_time_b[i])/nframes; //fftw3 requiere normalizar su salida real de esta manera
-		out[2][i] = creal(o_time_c[i])/nframes;
-	}
-
-
-
 	
+	for(i = 0; i < nframes; i++)
+		out[0][i] = real(o_time_a[i]); 
+
 	return 0;
 }
 
@@ -107,20 +140,50 @@ int jack_callback (jack_nframes_t nframes, void *arg)
  */
 
 void jack_shutdown (void *arg){
-
+	free(x);
+	free(x_ct);
+	free(x_aux);
+	free(in);
+	free(out);
+	free(input_port); 
+	free(output_port);
+	free(i_fft_a);
+	free(i_time_a );
+	free(o_fft_a );
+	free(o_time_a);
+	free(buffer_0);
+	free(i_fft_b );
+	free(i_time_b );
+	free(o_fft_b );
+	free(o_time_b);
+	free(i_fft_c );
+	free(i_time_c );
+	free(o_fft_c );
+	free(o_time_c);
+	free(fp);
 	exit (1);
 }
 
 
 int main (int argc, char *argv[]) {
 
-	const char *client_name = "NO_NOISE";
+	const char *client_name = "das";
 	jack_options_t options = JackNoStartServer;
 	jack_status_t status;
 	int i,j,k = 0;
 	char name_aux[50];
 
+	mic_distance = atof(argv[1]);
+
+	buffer_0 = ( std::complex<double>***) malloc( sizeof(std::complex<double> **) * NUM_CH );
 	
+	
+	for( i = 0; i < WINDOW_SIZE ; ++i)
+	{
+		exponentes[0][i] = -imag * (double)2.0 * M_PI * (double)(mic_distance / SOUND_SPEED)*  -sin( ((float)angle_arr ) * M_PI / 180.0) ;
+		exponentes[1][i] = -imag * (double)2.0 * M_PI * (double)(mic_distance / SOUND_SPEED)*  -cos( ((float)150-angle_arr ) * M_PI / 180.0) ;
+	}
+
 	//JACK PORTS
 	input = (jack_port_t**)malloc(NUM_CH*sizeof(jack_port_t*));
 	output = (jack_port_t**)malloc(NUM_CH*sizeof(jack_port_t*));
@@ -179,29 +242,29 @@ int main (int argc, char *argv[]) {
 
 	//preparing FFTW3 buffers
 	//preparing FFTW3 buffers
-	i_fft_a  = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
-	i_time_a = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
-	o_fft_a  = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
-	o_time_a = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
+	i_fft_a  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	i_time_a = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_fft_a  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_time_a = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
 	
-	i_forward_a = fftw_plan_dft_1d(nframes , (i_time_a), (i_fft_a ), FFTW_FORWARD, FFTW_MEASURE);
-	o_inverse_a = fftw_plan_dft_1d(nframes , (o_fft_a ), (o_time_a), FFTW_BACKWARD, FFTW_MEASURE);
+	i_forward_a = fftw_plan_dft_1d(nframes , reinterpret_cast<fftw_complex*>(i_time_a), reinterpret_cast<fftw_complex*>(i_fft_a ), FFTW_FORWARD, FFTW_MEASURE);
+	o_inverse_a = fftw_plan_dft_1d(nframes , reinterpret_cast<fftw_complex*>(o_fft_a ), reinterpret_cast<fftw_complex*>(o_time_a), FFTW_BACKWARD, FFTW_MEASURE);
 
-	i_fft_b  = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
-	i_time_b = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
-	o_fft_b  = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
-	o_time_b = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
+	i_fft_b  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	i_time_b = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_fft_b  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_time_b = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
 	
-	i_forward_b = fftw_plan_dft_1d(nframes, (i_time_b), (i_fft_b ), FFTW_FORWARD, FFTW_MEASURE);
-	o_inverse_b = fftw_plan_dft_1d(nframes, (o_fft_b ), (o_time_b), FFTW_BACKWARD, FFTW_MEASURE);
+	i_forward_b = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(i_time_b), reinterpret_cast<fftw_complex*>(i_fft_b ), FFTW_FORWARD, FFTW_MEASURE);
+	o_inverse_b = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(o_fft_b ), reinterpret_cast<fftw_complex*>(o_time_b), FFTW_BACKWARD, FFTW_MEASURE);
 
-	i_fft_c  = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
-	i_time_c = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
-	o_fft_c  = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
-	o_time_c = (double complex *) fftw_malloc(sizeof(double complex ) * nframes );
+	i_fft_c  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	i_time_c = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_fft_c  = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
+	o_time_c = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * nframes );
 	
-	i_forward_c = fftw_plan_dft_1d(nframes, (i_time_c), (i_fft_c ), FFTW_FORWARD, FFTW_MEASURE);
-	o_inverse_c = fftw_plan_dft_1d(nframes, (o_fft_c ), (o_time_c), FFTW_BACKWARD, FFTW_MEASURE);
+	i_forward_c = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(i_time_c), reinterpret_cast<fftw_complex*>(i_fft_c ), FFTW_FORWARD, FFTW_MEASURE);
+	o_inverse_c = fftw_plan_dft_1d(nframes, reinterpret_cast<fftw_complex*>(o_fft_c ), reinterpret_cast<fftw_complex*>(o_time_c), FFTW_BACKWARD, FFTW_MEASURE);
 	
 	/* create the agent input port */
 	for(i = 0; i< NUM_CH; ++i)
@@ -277,10 +340,10 @@ int main (int argc, char *argv[]) {
 	for(i = 0; i < NUM_CH-1; ++i)
 	{
 		
-		//if (jack_connect (client, jack_port_name (output[i]), serverports_names[i])) {
-		//	printf("Cannot connect input port.\n");
-		//	exit (1);
-		//}
+		if (jack_connect (client, jack_port_name (output[i]), serverports_names[i])) {
+			printf("Cannot connect input port.\n");
+			exit (1);
+		}
 		
 	}
 	// free serverports_names variable, we're not going to use it again
