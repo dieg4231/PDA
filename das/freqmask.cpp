@@ -161,14 +161,14 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 	for( i = 0; i < nframes ; ++i)
 		{
 			st_vec(0,i) = 1;
-			st_vec(1,i) = exp(  exponentes[0][i] * freqs[i] );
-			st_vec(2,i) = exp(  exponentes[1][i] * freqs[i] );	     	
+			st_vec(1,i) = exp( -exponentes[0][i] * freqs[i] );
+			st_vec(2,i) = exp( -exponentes[1][i] * freqs[i] );	     	
 		}
 
 	for( i = 0; i < nframes ; ++i)
 	{
-		align_m2 = st_vec(1,i)*imag_ * signall(1,i);
-		align_m3 = st_vec(2,i)*imag_ * signall(2,i);
+		align_m2 = st_vec(1,i) * signall(1,i);
+		align_m3 = st_vec(2,i) * signall(2,i);
 
 		this_m1_phase = std::arg(signall(0,i));
 		this_m2_phase = std::arg(align_m2);
@@ -186,7 +186,7 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 
 		//if( (phase_diff1 < threshold) && (phase_diff2 < threshold)  && (phase_diff3 < threshold))
 		if(  phase_diff1   < threshold   ) 
-			o_fft_a[i] = signall(0,i) + signall(1,i) + signall(2,i) ;
+			o_fft_a[i] = signall(0,i);// + signall(1,i) + signall(2,i) ;
 		else
 			o_fft_a[i] = signall(0,i)  * 0.1;
 
@@ -197,7 +197,7 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 	fftw_execute(o_inverse_a);
 	
 	for(i = 0; i < nframes; i++)
-		out[0][i] = real(o_time_a[i]); 
+		out[0][i] = 3.0*real(o_time_a[i])/nframes; 
 
 	//smooth(out[0],WINDOW_SIZE,50);
 	
