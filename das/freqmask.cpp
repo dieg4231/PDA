@@ -52,6 +52,7 @@ jack_port_t **output;
 float mic_distance;
 
 std::complex<double> imag(0.0,1.0);
+std::complex<double> imag_(0.0,-1.0);
 std::complex<double> align_m2,align_m3;
 double this_m1_phase, this_m2_phase, this_m3_phase,phase_diff1,phase_diff2,phase_diff3;
 
@@ -59,6 +60,7 @@ Eigen::MatrixXcd signall(NUM_CH, WINDOW_SIZE);
 Eigen::MatrixXcd  st_vec(NUM_CH, WINDOW_SIZE);
 
 jack_default_audio_sample_t smooth_aux[WINDOW_SIZE];
+
 void smooth( jack_default_audio_sample_t *arr,int n,int s)
 {
 	int i,j;
@@ -165,8 +167,8 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 
 	for( i = 0; i < nframes ; ++i)
 	{
-		align_m2 = st_vec(1,i) * signall(1,i);
-		align_m3 = st_vec(2,i) * signall(2,i);
+		align_m2 = st_vec(1,i)*imag_ * signall(1,i);
+		align_m3 = st_vec(2,i)*imag_ * signall(2,i);
 
 		this_m1_phase = std::arg(signall(0,i));
 		this_m2_phase = std::arg(align_m2);

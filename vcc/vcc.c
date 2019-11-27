@@ -158,7 +158,7 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 	if(index < nframes/2 )
 		desface = index;
 	else
-		desface = index -nframes;
+		desface = index - nframes;
 
 	//printf("max: %f index: %d   desface: %d\n",max,index,desface);
 	//exit(0);
@@ -167,7 +167,7 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 
 	//printf("angle : %lf \n",  angle );
 	//printf("%f \n",  (acos(angle)*180)/M_PI );
-	printf("%f\n",  angle );
+	printf("Angulo:  %f\n",  angle*180/M_PI );
 	fprintf(fp, "%f \n", angle);
 	fflush(fp);
 

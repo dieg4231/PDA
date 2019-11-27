@@ -10,7 +10,7 @@
 #include <thread> 
 #include <Eigen/Eigen>
 #include <Eigen/Eigenvalues> 
-#include <complex> //needs to be included before fftw3.h for compatibility
+#include <complex> 
 #include <fftw3.h>
 
 #include <iostream>
@@ -74,6 +74,7 @@ int max_energy_index = 0;
 bool once = true;
 
 
+
 void music(int start,int end)
 {	
 
@@ -101,10 +102,53 @@ void music(int start,int end)
 			//std::cout <<"vv "<< (float)i*M_PI/180.0 << std::endl;
 		}
 
+		//for( i = 0; i < RANGE ; ++i)
+		//	music_spectrum[j][i]= (std::complex<double>)( st_vec[j].col(i).transpose()*st_vec[j].col(i)  )/(std::complex<double>)(st_vec[j].col(i).transpose()*es.eigenvectors().col(max)*es.eigenvectors().col(max).transpose()*st_vec[j].col(i) );	
+		
 		for( i = 0; i < RANGE ; ++i)
-			music_spectrum[j][i]= (std::complex<double>)( st_vec[j].col(i).transpose()*st_vec[j].col(i)  )/(std::complex<double>)(st_vec[j].col(i).transpose()*es.eigenvectors().col(max)*es.eigenvectors().col(max).transpose()*st_vec[j].col(i) );	
+			music_spectrum[j][RANGE- i]= (std::complex<double>)( st_vec[j].col(i).transpose()*st_vec[j].col(i)  )/(std::complex<double>)(st_vec[j].col(i).transpose()*es.eigenvectors().col(max)*es.eigenvectors().col(max).transpose()*st_vec[j].col(i) );	
+	
 	}
 }
+
+
+
+jack_default_audio_sample_t smooth_aux[WINDOW_SIZE];
+void smooth( jack_default_audio_sample_t *arr,int n,int s)
+{
+	int i,j;
+	for(i = 0; i < s; i++)
+		smooth_aux[i] = arr[i];
+
+	for(i = n-1; i > n-s; i--)
+		smooth_aux[i] = arr[i];
+
+
+	for(i = s; i < n-s; ++i)
+	{
+		smooth_aux[i] = 0;
+		for(j = i-s; j < i+s+1; ++j)
+			smooth_aux[i] +=  arr[j];
+
+		smooth_aux[i] /=(s*2+1);
+	}
+
+//printf("++++++++++++++++++++++++\n");
+	for(i = 0; i < n; i++)
+	{
+//		printf("%f\n",arr[i]);
+		arr[i] = smooth_aux[i];
+	}
+/*
+printf("---------------------\n");
+	for(i = 0; i < n/8; i++)
+	{
+		printf("%f\n",arr[i]);
+	}
+*/
+}
+
+
 
 int jack_callback (jack_nframes_t nframes, void *arg)
 {
@@ -117,6 +161,23 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 		in[i] = (jack_default_audio_sample_t *)jack_port_get_buffer(input[i],nframes);
 		out[i] = (jack_default_audio_sample_t *)jack_port_get_buffer(output[i],nframes);
 	}
+
+/*
+	std::thread sth0 (smooth,in[0],WINDOW_SIZE,50);
+	std::thread sth1 (smooth,in[1],WINDOW_SIZE,50);
+	std::thread sth2 (smooth,in[2],WINDOW_SIZE,50);
+
+	sth0.join();
+	sth1.join();
+	sth2.join();
+*/
+
+
+/*
+	smooth(in[0],WINDOW_SIZE,25);
+	smooth(in[1],WINDOW_SIZE,25);
+	smooth(in[2],WINDOW_SIZE,25);
+*/
 
 	for(j = 0; j < nframes; ++j)
 	{
@@ -135,7 +196,7 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 	fftw_execute(i_forward_b);
 	fftw_execute(i_forward_c);
 
-	// Corrimiento de los apuntadores del buffer 0
+	// Corrimiento de los apuntadores del buffer principal
 	for(i = 0; i < N_SAMPLES_X_MUSIC - 1; ++i )
 	{
 		buffer_0[0][i] = buffer_0[0][i + 1];
@@ -155,7 +216,7 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 		buffer_0[2][N_SAMPLES_X_MUSIC- 1][i] = i_fft_c[i];
 	}
 
-	//Aplaztando espectros
+	//Aplastando espectros
 	for (j = 0; j < SIZE_BUFFRS; ++j)
 			buffer_aplaztado[j] = 0;
 
@@ -169,7 +230,7 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 		}
 	}
 
-	/* Boton rojo */
+	/* Boton rojo  Para indicar*/
 	for( i = 1; i <= SIZE_BUFFRS; ++i ) avg += i_fft_a[i].real();
 		avg /= SIZE_BUFFRS;
 	avg > 0.005 ? cta_callado=0  : cta_callado ++ ;

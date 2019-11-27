@@ -154,7 +154,7 @@ int jack_callback (jack_nframes_t nframes, void *arg)
 
 	//printf("angle : %lf \n",  angle );
 	//printf("%f \n",  (acos(angle)*180)/M_PI );
-	printf("%f\n",  angle );
+	printf("Angulo:  %f\n",  angle*180/M_PI );
 	fprintf(fp, "%f \n", angle);
 	fflush(fp);
 
